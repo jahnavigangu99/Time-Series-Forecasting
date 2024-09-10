@@ -1,0 +1,176 @@
+---
+title: "Advanced Time Series Forecasting with ARIMA and Exogenous Variables: ICNSA and UNRATE Analysis"
+author: "JAHNAVI GANGU"
+date: "2024-02-19"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r}
+# Set the CRAN mirror to a reliable source, e.g., USA or Global
+options(repos = c(CRAN = "https://cran.rstudio.com/"))
+
+library(reprex)
+library(fredr)
+library(stats)
+library(ggplot2)
+library(forecast)
+library(tseries)
+library(lmtest)
+library(TSA)
+library(urca)
+```
+
+
+
+reprex({
+```{r}
+fredr_set_key("c387f7cbc3f36a5a52a03d391d17e253")
+icnsa_data <- fredr(series_id = "ICNSA")
+covariate_data <- fredr(series_id = "UNRATE")
+```
+
+```{r}
+str(icnsa_data)
+```
+```{r}
+head(icnsa_data)
+```
+
+```{r}
+str(covariate_data)
+```
+```{r}
+head(covariate_data)
+```
+
+
+```{r}
+# Handle missing values
+missing_icnsa <- colSums(is.na(icnsa_data))
+missing_covariate <- colSums(is.na(covariate_data))
+
+cat("Missing values in ICNSA data:\n")
+print(missing_icnsa)
+
+cat("\nMissing values in Covariate data:\n")
+print(missing_covariate)
+
+library(ggplot2)
+
+# Convert data frames to regular data frames
+icnsa_data <- as.data.frame(icnsa_data)
+covariate_data <- as.data.frame(covariate_data)
+
+# Plotting the data
+ggplot() +
+  geom_line(data = icnsa_data, aes(x = date, y = value, color = "ICNSA"), linewidth = 1) +
+  labs(title = "Time Series Plot", x = "Date", y = "Value") +
+  scale_color_manual(values = c("ICNSA" = "blue")) +
+  theme_minimal()
+```
+```{r}
+# Plotting the data
+ggplot() +
+  geom_line(data = covariate_data, aes(x = date, y = value, color = "UNRATE"), linewidth = 1) +
+  labs(title = "Time Series Plot", x = "Date", y = "Value") +
+  scale_color_manual(values = c("UNRATE" = "red")) +
+  theme_minimal()
+```
+```{r}
+ggplot() +
+  geom_line(data = icnsa_data, aes(x = date, y = value, color = "ICNSA"), linewidth = 1) +
+  geom_line(data = covariate_data, aes(x = date, y = value, color = "UNRATE"), linewidth = 1) +
+  labs(title = "ICNSA and UNRATE Time Series Plot", x = "Date", y = "Value") +
+  scale_color_manual(values = c("ICNSA" = "blue", "UNRATE" = "red")) +
+  theme_minimal()
+```
+
+```{r}
+# Correlation analysis
+merged_data <- merge(icnsa_data, covariate_data, by = "date")
+correlation <- cor(merged_data$value.x, merged_data$value.y)
+cat("Correlation between ICNSA and UNRATE:", correlation)
+
+# Print correlation coefficient
+print(correlation)
+```
+
+```{r}
+# function for ADF test
+adf_test <- function(series) {
+  result <- adf.test(series)
+  cat("ADF Statistic:", result$statistic, "\n")
+  cat("p-value:", result$p.value, "\n")
+}
+
+#ADF test for ICNSA
+adf_test(icnsa_data$value)
+
+#ADF test for UNRATE
+adf_test(covariate_data$value)
+```
+```{r}
+# Cross-correlation function (CCF) plot
+ccf_result <- ccf(icnsa_data$value, covariate_data$value, lag.max = 10, plot = TRUE,
+                  xlab = "Lag", ylab = "Correlation", main = "Cross-Correlation Function")
+```
+```{r}
+# Identifying common time period with non-missing values
+common_dates <- intersect(icnsa_data$date, covariate_data$date)
+
+# Subset data based on common dates
+icnsa_data <- icnsa_data[icnsa_data$date %in% common_dates, ]
+covariate_data <- covariate_data[covariate_data$date %in% common_dates, ]
+
+# Exploring relationship between variables
+plot(icnsa_data$value ~ covariate_data$value)
+
+# Preprocessing data 
+data <- complete.cases(icnsa_data, covariate_data)
+icnsa_value <- icnsa_data$value[data]
+covariate_value <- covariate_data$value[data]
+```
+
+
+```{r}
+install.packages("lubridate")
+library(lubridate)
+
+# For ICNSA weekly data
+icnsa_start <- c(year(min(icnsa_data$date)), week(min(icnsa_data$date)))
+icnsa_ts <- ts(icnsa_value, start = icnsa_start, frequency = 52)
+
+# For UNRATE monthly data
+covariate_start <- c(year(min(covariate_data$date)), month(min(covariate_data$date)))
+covariate_ts <- ts(covariate_value, start = covariate_start, frequency = 12)
+
+```
+
+```{r}
+# Fitting ARIMA model with exogenous variable
+
+final_model <- auto.arima(icnsa_ts, xreg = covariate_ts)
+#final_model <- Arima(icnsa_data$value, xreg = covariate_data$value)
+checkresiduals(final_model)
+```
+
+```{r}
+# Print model summary
+summary(final_model)
+```
+```{r}
+str(final_model)
+```
+```{r}
+# Forecasting
+forecast_values <- forecast(final_model, xreg = covariate_ts, h=1)
+prediction <- forecast_values$mean[1]
+prediction
+
+plot(forecast_values)
+```
+})
+
+
