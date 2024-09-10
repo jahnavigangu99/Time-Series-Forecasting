@@ -1,0 +1,182 @@
+---
+title: "GDP_forecasting"
+author: "JAHNAVI GANGU"
+date: "2024-09-10"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r}
+# Load libraries
+library(tidyverse)
+library(fredr)
+library(forecast)
+library(imputeTS)
+```
+
+
+```{r}
+# Set API key for FRED data access
+fredr_set_key("c387f7cbc3f36a5a52a03d391d17e253")
+```
+
+```{r}
+# Retrieve GDP data from FRED database
+GDP_data <- fredr(series_id = "GDP")
+```
+
+```{r}
+# Plot GDP data
+plot(GDP_data$date, GDP_data$value, type = "l", xlab = "Date", ylab = "GDP", main = "GDP Data")
+```
+
+```{r}
+# Display structure and first few rows of GDP data
+head(GDP_data)
+str(GDP_data)
+```
+
+```{r}
+# Extract numeric GDP values
+numeric_GDP_data <- GDP_data %>%
+  select(value) 
+```
+
+```{r}
+# Check for missing values
+missing_values <- sum(is.na(numeric_GDP_data$value))
+```
+
+```{r}
+# Impute missing values if any
+if (missing_values > 0) {
+  numeric_GDP_data$value <- na_interpolation(numeric_GDP_data$value)
+}
+```
+
+```{r}
+# Define target variable
+target_variable <- numeric_GDP_data$value
+```
+
+```{r}
+# Fit AutoARIMA model
+autoarima_fit <- auto.arima(target_variable)
+
+# Print model summary
+summary(autoarima_fit)
+```
+
+
+```{r}
+# Plot ACF and PACF of AutoARIMA model residuals
+autoplot(acf(autoarima_fit$residuals))
+autoplot(pacf(autoarima_fit$residuals))
+autoplot(autoarima_fit$residuals)
+```
+
+```{r}
+# Fit ETS model
+ets_fit <- ets(target_variable)
+
+# Print model summary
+summary(ets_fit)
+```
+
+```{r}
+# Plot ACF and PACF of ETS model residuals
+autoplot(acf(ets_fit$residuals))
+autoplot(pacf(ets_fit$residuals))
+autoplot(ets_fit$residuals)
+```
+
+```{r}
+# Define forecast horizon
+forecast_horizon <- 12
+```
+
+```{r}
+# Forecast with ETS model
+ets_forecast <- forecast(ets_fit, h = forecast_horizon)
+
+# Plot ETS forecast
+autoplot(ets_forecast)
+```
+
+```{r}
+# Forecast with AutoARIMA model
+autoarima_forecast <- forecast(autoarima_fit, h = forecast_horizon)
+
+# Plot AutoARIMA forecast
+autoplot(autoarima_forecast)
+```
+
+
+```{r}
+# Define function for K-Fold Cross-Validation
+kfold_cv <- function(model_fit, data, forecast_horizon, k = 10) {
+  folds <- cut(1:nrow(data), breaks = k, labels = FALSE)
+  rmse_errors <- rep(NA, k)
+  mae_errors <- rep(NA, k)
+  mape_errors <- rep(NA, k)
+  for (i in 1:k) {
+    training_set <- data[folds != i, ]
+    testing_set <- data[folds == i, ]
+    
+    # Remove missing values from training and testing sets
+    training_set <- na.omit(training_set)
+    testing_set <- na.omit(testing_set)
+    
+    model <- model_fit(training_set)
+    forecast <- forecast(model, h = forecast_horizon)
+    forecast_values <- forecast$mean
+    actual_values <- head(testing_set$value, length(forecast_values))
+    rmse_errors[i] <- sqrt(mean((actual_values - forecast_values)^2))
+    mae_errors[i] <- mean(abs(actual_values - forecast_values))
+    mape_errors[i] <- mean(abs((actual_values - forecast_values) / actual_values) * 100)
+  }
+  data.frame(
+    Fold = 1:k,
+    RMSE = rmse_errors,
+    MAE = mae_errors,
+    MAPE = mape_errors
+  )
+}
+```
+
+```{r}
+# Apply K-Fold CV to AutoARIMA model
+autoarima_cv <- kfold_cv(function(data) auto.arima(data$value), GDP_data, forecast_horizon)
+```
+
+```{r}
+# Apply K-Fold CV to ETS model
+ets_cv <- kfold_cv(function(data) ets(ts(data$value, frequency = 4)), GDP_data, forecast_horizon)
+```
+
+
+```{r}
+# Print CV results for each model
+print("AutoARIMA K-Fold CV Results:")
+print(summary(autoarima_cv))
+print("ETS K-Fold CV Results:")
+print(summary(ets_cv))
+```
+
+
+```{r}
+# One-Step Ahead Point Forecasts
+autoarima_forecast_1 <- forecast(autoarima_fit, h = 1)$mean
+ets_forecast_1 <- forecast(ets_fit, h = 1)$mean
+```
+
+
+```{r}
+# Print forecasts
+print("AutoARIMA One-Step Ahead Forecast:")
+print(autoarima_forecast_1)
+print("ETS One-Step Ahead Forecast:")
+print(ets_forecast_1)
+```
+
